@@ -1,18 +1,12 @@
 import axios from 'axios';
 
-// For production, use a CORS proxy if needed
+// For production, use direct API URL, no longer using CORS proxy
 const baseUrl = import.meta.env.VITE_API_URL || '/api';
-const useProxy = true; // Set to false when backend CORS is fixed
-
-// Use a public CORS proxy or your own proxy
-const proxyUrl = 'https://corsproxy.io/?';
-const finalBaseURL = useProxy && baseUrl.startsWith('http') 
-  ? `${proxyUrl}${encodeURIComponent(baseUrl)}`
-  : baseUrl;
+const useProxy = false; // Disabled CORS proxy usage
 
 // Create axios instance with common configuration
 const api = axios.create({
-  baseURL: finalBaseURL,
+  baseURL: baseUrl,
   headers: {
     'Content-Type': 'application/json',
   },
