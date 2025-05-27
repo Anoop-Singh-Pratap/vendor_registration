@@ -125,6 +125,55 @@ const ALLOWED_FILE_TYPES = ['application/pdf', 'application/msword', 'applicatio
 const MAX_FILE_SIZE_MB = 10;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
+// Improved phone number formatting helper function
+const formatPhoneNumber = (phoneNumber: string, countryCode: string): string => {
+  // Strip all non-digit characters except the + sign at the beginning
+  let cleaned = phoneNumber.replace(/[^\d+]/g, '');
+  
+  // Add the country code if not present
+  if (!cleaned.startsWith('+') && countryCode) {
+    cleaned = countryCode + cleaned;
+  } else if (!cleaned.startsWith('+') && !countryCode) {
+    cleaned = '+' + cleaned;
+  }
+  
+  // Format based on country
+  if (cleaned.startsWith('+91')) { // India
+    // +91 XXXXX XXXXX
+    if (cleaned.length > 3) {
+      cleaned = cleaned.substring(0, 3) + ' ' + cleaned.substring(3);
+    }
+    if (cleaned.length > 9) {
+      cleaned = cleaned.substring(0, 9) + ' ' + cleaned.substring(9);
+    }
+  } else {
+    // Generic international format +XX XXX XXX XXXX
+    if (cleaned.length > 3) {
+      cleaned = cleaned.substring(0, 3) + ' ' + cleaned.substring(3);
+    }
+    if (cleaned.length > 7) {
+      cleaned = cleaned.substring(0, 7) + ' ' + cleaned.substring(7);
+    }
+    if (cleaned.length > 11) {
+      cleaned = cleaned.substring(0, 11) + ' ' + cleaned.substring(11);
+    }
+  }
+  
+  return cleaned;
+};
+
+// Validate phone number based on country
+const validatePhoneNumber = (phone: string, countryCode: string): boolean => {
+  const digits = phone.replace(/\D/g, '');
+  
+  if (countryCode === '+91') { // India
+    return digits.length === 10 || digits.length === 12; // 10 digits or 12 with country code
+  }
+  
+  // Generic validation for other countries (minimum 7 digits plus country code)
+  return digits.length >= 7;
+};
+
 // --- Helper Components ---
 interface FormFieldProps {
   id: keyof VendorFormData | string;
@@ -208,7 +257,7 @@ const VendorRegistration: React.FC = () => {
   const [customCountryCode, setCustomCountryCode] = useState('');
 
   // Form setup
-  const { register, handleSubmit, control, formState: { errors, isSubmitting }, reset, watch, setValue } = useForm<VendorFormData>({
+  const { register, handleSubmit, control, formState: { errors, isSubmitting }, reset, watch, setValue, trigger } = useForm<VendorFormData>({
     mode: 'onBlur',
     defaultValues: {
       name: '',
@@ -500,6 +549,43 @@ const VendorRegistration: React.FC = () => {
       });
     };
   }, [filePreviews]);
+
+  // Handle phone number change with formatting
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    const selectedCountry = countries.find(c => c.code === watch('country'));
+    const countryCodeStr = watch('vendorType') === 'domestic' 
+      ? '+91' 
+      : (watch('country') === 'others' ? customCountryCode : (selectedCountry?.countryCode || ''));
+    
+    const formattedPhone = formatPhoneNumber(value, countryCodeStr);
+    setValue('contactNo', formattedPhone);
+  };
+
+  // Update phone number when country changes
+  useEffect(() => {
+    const selectedCountry = countries.find(c => c.code === watch('country'));
+    const countryCodeStr = watch('vendorType') === 'domestic' 
+      ? '+91' 
+      : (watch('country') === 'others' ? customCountryCode : (selectedCountry?.countryCode || ''));
+    
+    // Only reset phone if country code changed and phone is empty or just has a country code
+    const currentPhone = watch('contactNo');
+    if (!currentPhone || currentPhone.trim() === '' || currentPhone.replace(/\s/g, '') === currentPhone.replace(/\s/g, '').substring(0, 3)) {
+      setValue('contactNo', countryCodeStr + ' ');
+    } else if (!currentPhone.startsWith(countryCodeStr)) {
+      // If phone doesn't start with the correct country code, update it
+      setValue('contactNo', formatPhoneNumber(currentPhone.replace(/^\+\d+\s/, ''), countryCodeStr));
+    }
+  }, [watch('country'), watch('vendorType'), customCountryCode]);
+
+  // Update custom country code when changed
+  useEffect(() => {
+    if (watch('country') === 'others' && customCountryCode) {
+      const formattedPhone = formatPhoneNumber(watch('contactNo'), customCountryCode);
+      setValue('contactNo', formattedPhone);
+    }
+  }, [customCountryCode]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-gray-50 to-blue-50/30 dark:from-neutral-950 dark:via-neutral-900 dark:to-blue-950/30">
@@ -818,33 +904,6 @@ const VendorRegistration: React.FC = () => {
                             />
                           </FormField>
 
-                          {/* GST Number - only for domestic vendors */}
-                          {watch('vendorType') === 'domestic' && (
-                            <FormField label="GST Number (Optional)" id="gstNumber" error={errors.gstNumber?.message}>
-                              <div className="relative">
-                                <Input
-                                  id="gstNumber"
-                                  placeholder="e.g., 22AAAAA0000A1Z5"
-                                  className="bg-background/70 uppercase"
-                                  {...register("gstNumber", {
-                                    pattern: {
-                                      value: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/,
-                                      message: "Please enter a valid GST Number format (e.g., 22AAAAA0000A1Z5)"
-                                    }
-                                  })}
-                                  aria-invalid={errors.gstNumber ? "true" : "false"}
-                                  maxLength={15}
-                                />
-                                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground bg-background/90 px-1 rounded">
-                                  15 characters
-                                </div>
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Adding your GST number helps expedite the vendor verification process
-                              </p>
-                            </FormField>
-                          )}
-
                           <div className="grid md:grid-cols-2 gap-x-6 gap-y-5">
                             <FormField label="Type of Firm" required id="firmType" error={errors.firmType?.message}>
                               <Controller
@@ -939,47 +998,202 @@ const VendorRegistration: React.FC = () => {
                                 control={control}
                                 rules={{ required: "Country is required" }}
                                 render={({ field }) => (
-                                  <Select
-                                    onValueChange={field.onChange}
-                                    defaultValue={field.value}
-                                    value={field.value}
-                                    disabled={watch('vendorType') === 'domestic'}
-                                  >
-                                    <SelectTrigger
-                                      id="country"
-                                      aria-invalid={errors.country ? "true" : "false"}
-                                      className={cn(
-                                        "bg-background/70",
-                                        watch('vendorType') === 'domestic' && "opacity-80"
-                                      )}
+                                  <div className="relative">
+                                    <Select
+                                      onValueChange={(value) => {
+                                        field.onChange(value);
+                                        // Reset custom country fields if not 'others'
+                                        if (value !== 'others') {
+                                          setCustomCountry('');
+                                          setCustomCountryCode('');
+                                        }
+                                      }}
+                                      defaultValue={field.value}
+                                      value={field.value}
+                                      disabled={watch('vendorType') === 'domestic'}
                                     >
-                                      <SelectValue placeholder="Select country..." />
-                                    </SelectTrigger>
-                                    <SelectContent className="max-h-80">
-                                      {countries.map(country => (
-                                        <SelectItem key={country.code} value={country.code}>{country.name}</SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                      <SelectTrigger
+                                        id="country"
+                                        aria-invalid={errors.country ? "true" : "false"}
+                                        className={cn(
+                                          "bg-background/70",
+                                          watch('vendorType') === 'domestic' && "opacity-80"
+                                        )}
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          {field.value && field.value !== 'others' && (
+                                            <span className="inline-block w-5 text-center">
+                                              {field.value === 'in' ? '🇮🇳' : 
+                                               field.value === 'us' ? '🇺🇸' :
+                                               field.value === 'gb' ? '🇬🇧' :
+                                               field.value === 'ca' ? '🇨🇦' :
+                                               field.value === 'au' ? '🇦🇺' :
+                                               field.value === 'jp' ? '🇯🇵' :
+                                               field.value === 'cn' ? '🇨🇳' :
+                                               field.value === 'de' ? '🇩🇪' : ''
+                                              }
+                                            </span>
+                                          )}
+                                          <SelectValue placeholder="Select country..." />
+                                        </div>
+                                      </SelectTrigger>
+                                      <SelectContent className="max-h-80">
+                                        <div className="p-2 sticky top-0 bg-background z-10 border-b">
+                                          <Input 
+                                            placeholder="Search countries..." 
+                                            className="bg-muted/50" 
+                                            onChange={(e) => {
+                                              // Find and auto-select exactly matching country
+                                              const search = e.target.value.toLowerCase();
+                                              const exactMatch = countries.find(
+                                                c => c.name.toLowerCase() === search
+                                              );
+                                              if (exactMatch && exactMatch.code !== 'others') {
+                                                field.onChange(exactMatch.code);
+                                              }
+                                              
+                                              // Show/hide countries in the list with JS (because we can't filter the SelectContent)
+                                              const items = document.querySelectorAll('[data-country-item]');
+                                              items.forEach(item => {
+                                                const countryName = item.getAttribute('data-country-name')?.toLowerCase() || '';
+                                                if (countryName.includes(search)) {
+                                                  (item as HTMLElement).style.display = 'block';
+                                                } else {
+                                                  (item as HTMLElement).style.display = 'none';
+                                                }
+                                              });
+                                            }}
+                                          />
+                                        </div>
+                                        <div className="pt-2">
+                                          <div className="pb-2 px-2">
+                                            <div className="text-xs font-medium text-muted-foreground mb-1">Frequently Used</div>
+                                            <div className="grid grid-cols-2 gap-1">
+                                              {['in', 'us', 'gb', 'ca', 'au', 'sg'].map(code => {
+                                                const country = countries.find(c => c.code === code);
+                                                if (!country) return null;
+                                                return (
+                                                  <SelectItem 
+                                                    key={country.code} 
+                                                    value={country.code}
+                                                    data-country-item
+                                                    data-country-name={country.name}
+                                                    className="cursor-pointer"
+                                                  >
+                                                    <div className="flex items-center gap-2">
+                                                      <span className="inline-block w-5 text-center">
+                                                        {country.code === 'in' ? '🇮🇳' : 
+                                                         country.code === 'us' ? '🇺🇸' :
+                                                         country.code === 'gb' ? '🇬🇧' :
+                                                         country.code === 'ca' ? '🇨🇦' :
+                                                         country.code === 'au' ? '🇦🇺' :
+                                                         country.code === 'sg' ? '🇸🇬' : ''
+                                                        }
+                                                      </span>
+                                                      <span>{country.name}</span>
+                                                    </div>
+                                                  </SelectItem>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                          <div className="px-2 pb-1">
+                                            <div className="text-xs font-medium text-muted-foreground mb-1">All Countries</div>
+                                          </div>
+                                          {countries.map(country => (
+                                            <SelectItem 
+                                              key={country.code} 
+                                              value={country.code}
+                                              data-country-item
+                                              data-country-name={country.name}
+                                              className={cn(
+                                                "cursor-pointer",
+                                                ['in', 'us', 'gb', 'ca', 'au', 'sg'].includes(country.code) && "hidden"
+                                              )}
+                                            >
+                                              {country.code === 'others' ? (
+                                                <div className="flex items-center gap-2">
+                                                  <span className="inline-block w-5 text-center">
+                                                    <Plus size={16} />
+                                                  </span>
+                                                  {country.name}
+                                                </div>
+                                              ) : (
+                                                <div className="flex items-center justify-between">
+                                                  <span>{country.name}</span>
+                                                  <span className="text-xs text-muted-foreground">{country.countryCode}</span>
+                                                </div>
+                                              )}
+                                            </SelectItem>
+                                          ))}
+                                        </div>
+                                      </SelectContent>
+                                    </Select>
+                                    {watch('vendorType') === 'domestic' && (
+                                      <div className="absolute right-8 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded-sm bg-muted/60 text-muted-foreground text-xs">
+                                        India Only
+                                      </div>
+                                    )}
+                                  </div>
                                 )}
                               />
                               {watch('country') === 'others' && (
-                                <div className="mt-3 flex flex-col gap-2">
+                                <div className="mt-3 space-y-3">
                                   <Input
                                     placeholder="Enter your country name"
                                     value={customCountry}
                                     onChange={e => setCustomCountry(e.target.value)}
                                     className="bg-background/70"
                                   />
-                                  <Input
-                                    placeholder="Enter country code (e.g. +975)"
-                                    value={customCountryCode}
-                                    onChange={e => setCustomCountryCode(e.target.value)}
-                                    className="bg-background/70"
-                                  />
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">+</span>
+                                    <Input
+                                      placeholder="Enter country code (e.g. 975)"
+                                      value={customCountryCode.replace(/^\+/, '')}
+                                      onChange={e => {
+                                        const value = e.target.value.replace(/\D/g, '');
+                                        setCustomCountryCode(value ? `+${value}` : '');
+                                      }}
+                                      className="bg-background/70 pl-6"
+                                      type="tel"
+                                      maxLength={5}
+                                    />
+                                  </div>
                                 </div>
                               )}
+                              {!errors.country && watch('vendorType') === 'global' && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Select your country of operation or choose "Others" if not listed
+                                </p>
+                              )}
                             </FormField>
+
+                            {/* GST Number for domestic vendors - placed after vendor type for better usability */}
+                            {watch('vendorType') === 'domestic' && (
+                              <FormField label="GST Number (Optional)" id="gstNumber" error={errors.gstNumber?.message}>
+                                <div className="relative">
+                                  <Input
+                                    id="gstNumber"
+                                    placeholder="e.g., 22AAAAA0000A1Z5"
+                                    className="bg-background/70 uppercase"
+                                    {...register("gstNumber", {
+                                      pattern: {
+                                        value: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/,
+                                        message: "Please enter a valid GST Number format (e.g., 22AAAAA0000A1Z5)"
+                                      }
+                                    })}
+                                    aria-invalid={errors.gstNumber ? "true" : "false"}
+                                    maxLength={15}
+                                  />
+                                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground bg-background/90 px-1 rounded">
+                                    15 characters
+                                  </div>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Adding your GST number helps expedite the vendor verification process
+                                </p>
+                              </FormField>
+                            )}
                           </div>
                         </div>
 
@@ -988,14 +1202,43 @@ const VendorRegistration: React.FC = () => {
                           <SectionHeader icon={Phone} title="Contact Details" description="How we can reach you" />
                           <div className="grid md:grid-cols-2 gap-x-6 gap-y-5">
                             <FormField label="Contact Number" required id="contactNo" error={errors.contactNo?.message}>
-                              <Input
-                                id="contactNo"
-                                type="tel"
-                                placeholder={contactPlaceholder}
-                                className="bg-background/70"
-                                {...register("contactNo", { required: "Contact number is required" })}
-                                aria-invalid={errors.contactNo ? "true" : "false"}
-                              />
+                              <div className="relative">
+                                {shouldShowCountryCodeBadge && (
+                                  <div className="absolute left-3 top-1/2 -translate-y-1/2 bg-muted/80 text-muted-foreground rounded px-1.5 py-0.5 text-xs font-medium">
+                                    {countryCode}
+                                  </div>
+                                )}
+                                <Input
+                                  id="contactNo"
+                                  type="tel"
+                                  placeholder={contactPlaceholder}
+                                  className={cn(
+                                    "bg-background/70",
+                                    shouldShowCountryCodeBadge && "pl-[calc(0.75rem+2.5rem)]"
+                                  )}
+                                  {...register("contactNo", { 
+                                    required: "Contact number is required",
+                                    onChange: handlePhoneChange,
+                                    validate: (value) => {
+                                      const selectedCountry = countries.find(c => c.code === watch('country'));
+                                      const countryCodeStr = watch('vendorType') === 'domestic' 
+                                        ? '+91' 
+                                        : (watch('country') === 'others' ? customCountryCode : (selectedCountry?.countryCode || ''));
+                                      
+                                      return validatePhoneNumber(value, countryCodeStr) || 
+                                        `Please enter a valid phone number for ${selectedCountry?.name || 'the selected country'}`;
+                                    }
+                                  })}
+                                  aria-invalid={errors.contactNo ? "true" : "false"}
+                                />
+                              </div>
+                              {!errors.contactNo && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {watch('vendorType') === 'domestic' 
+                                    ? 'Enter a 10-digit mobile number' 
+                                    : 'Include country code and area code if applicable'}
+                                </p>
+                              )}
                             </FormField>
                             <FormField label="Email Address" required id="email" error={errors.email?.message}>
                               <Input
@@ -1410,38 +1653,43 @@ const VendorRegistration: React.FC = () => {
                 color: "from-teal-500/10 to-cyan-600/5 dark:from-teal-800/20 dark:to-cyan-900/10",
                 ariaLabel: "Sustainable business partnerships"
               }
-            ].map((benefit, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 50 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.3 }}
-                transition={{ duration: 0.6, delay: index * 0.15, ease: "easeOut" }}
-                whileHover={{ y: -8, scale: 1.03, transition: { duration: 0.2 } }}
-                className="bg-card/90 dark:bg-neutral-800/90 backdrop-blur-sm border border-border/30 dark:border-neutral-700/50 rounded-2xl overflow-hidden flex flex-col shadow-lg hover:shadow-xl transition-all duration-300 group"
-                aria-labelledby={`benefit-title-${index}`}
-              >
-                {/* Colored Gradient Blur Effect */}
-                <div className={`absolute top-0 right-0 w-48 h-48 bg-gradient-to-bl ${benefit.color} rounded-full blur-3xl -z-10 opacity-70 group-hover:opacity-90 transition-opacity duration-300`} aria-hidden="true"></div>
+            ].map((benefit, index) => {
+              // Define the Icon component from the benefit object to fix the error
+              const BenefitIcon = benefit.icon;
+              
+              return (
+                <motion.div
+                  key={index}
+                  initial={{ opacity: 0, y: 50 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, amount: 0.3 }}
+                  transition={{ duration: 0.6, delay: index * 0.15, ease: "easeOut" }}
+                  whileHover={{ y: -8, scale: 1.03, transition: { duration: 0.2 } }}
+                  className="bg-card/90 dark:bg-neutral-800/90 backdrop-blur-sm border border-border/30 dark:border-neutral-700/50 rounded-2xl overflow-hidden flex flex-col shadow-lg hover:shadow-xl transition-all duration-300 group"
+                  aria-labelledby={`benefit-title-${index}`}
+                >
+                  {/* Colored Gradient Blur Effect */}
+                  <div className={`absolute top-0 right-0 w-48 h-48 bg-gradient-to-bl ${benefit.color} rounded-full blur-3xl -z-10 opacity-70 group-hover:opacity-90 transition-opacity duration-300`} aria-hidden="true"></div>
 
-                <div className="p-6 pb-8 flex-grow relative z-10 flex flex-col">
-                  {/* Enhanced Icon with Aria Label */}
-                  <div
-                    className="mb-5 inline-flex items-center justify-center w-14 h-14 rounded-xl bg-gradient-to-br from-background to-muted/60 dark:from-neutral-700 dark:to-neutral-800/50 shadow-md border border-border/20 dark:border-neutral-600/50"
-                    aria-hidden="true"
-                    role="img"
-                    aria-label={benefit.ariaLabel}
-                  >
-                    <benefit.icon className="h-7 w-7 text-rashmi-red" />
+                  <div className="p-6 pb-8 flex-grow relative z-10 flex flex-col">
+                    {/* Enhanced Icon with Aria Label */}
+                    <div
+                      className="mb-5 inline-flex items-center justify-center w-14 h-14 rounded-xl bg-gradient-to-br from-background to-muted/60 dark:from-neutral-700 dark:to-neutral-800/50 shadow-md border border-border/20 dark:border-neutral-600/50"
+                      aria-hidden="true"
+                      role="img"
+                      aria-label={benefit.ariaLabel}
+                    >
+                      <BenefitIcon className="h-7 w-7 text-rashmi-red" />
+                    </div>
+                    {/* Text Content */}
+                    <h3 id={`benefit-title-${index}`} className="text-xl font-semibold mb-2.5 text-foreground dark:text-neutral-100">{benefit.title}</h3>
+                    <p className="text-muted-foreground dark:text-neutral-300 text-sm leading-relaxed flex-grow">{benefit.description}</p>
+                    {/* Bottom Line - subtle */}
+                    <div className="mt-6 h-[1px] w-full bg-gradient-to-r from-rashmi-red/40 via-border/50 to-transparent" aria-hidden="true"></div>
                   </div>
-                  {/* Text Content */}
-                  <h3 id={`benefit-title-${index}`} className="text-xl font-semibold mb-2.5 text-foreground dark:text-neutral-100">{benefit.title}</h3>
-                  <p className="text-muted-foreground dark:text-neutral-300 text-sm leading-relaxed flex-grow">{benefit.description}</p>
-                  {/* Bottom Line - subtle */}
-                  <div className="mt-6 h-[1px] w-full bg-gradient-to-r from-rashmi-red/40 via-border/50 to-transparent" aria-hidden="true"></div>
-                </div>
-              </motion.div>
-            ))}
+                </motion.div>
+              );
+            })}
           </div>
 
           {/* Call-to-action to Scroll back to Form */}
