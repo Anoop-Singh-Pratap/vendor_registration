@@ -1,8 +1,9 @@
 import axios from 'axios';
 
-// For production, use direct API URL, no longer using CORS proxy
-const baseUrl = import.meta.env.VITE_API_URL || '/api';
-const useProxy = false; // Disabled CORS proxy usage
+// For production, use a relative path to allow Vercel to proxy the request
+const baseUrl = import.meta.env.DEV 
+  ? import.meta.env.VITE_API_URL 
+  : '/api'; // Use relative path in production
 
 // Create axios instance with common configuration
 const api = axios.create({
